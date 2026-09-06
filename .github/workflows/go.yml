@@ -18,10 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.26'
           cache: true
@@ -39,13 +39,14 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        go-version: ['1.25', '1.26'] # Тестирование на текущей и прошлой стабильных версиях
+        # Добавляем актуальную версию 1.26 и самую новую 1.27
+        go-version: ['1.26', '1.27'] 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go-version }}
           cache: true
@@ -68,12 +69,12 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') # Условие: выполнять только для тегов версий
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0 # Требуется для автоматической генерации списка изменений (Changelog)
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.26'
 
