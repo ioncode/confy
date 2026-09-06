@@ -8,8 +8,7 @@ import (
 
 // cachedSchema инкапсулирует вычисленные метаданные и синхронизацию флагов для конкретного типа.
 type cachedSchema struct {
-	meta      []FieldMeta
-	onceFlags sync.Once
+	meta []FieldMeta
 }
 
 // schemaCache — глобальный потокобезопасный кэш схем типов.
@@ -137,26 +136,21 @@ func (l *Loader) extractMetaRecursive(t reflect.Type, flagPrefix, envPrefix stri
 		tagEnv := structField.Tag.Get(TagEnv)
 
 		if structField.Type.Kind() == reflect.Struct {
-			nextFlag := flagPrefix
-			if tagFlag != "" {
-				nextFlag = l.join(flagPrefix, tagFlag, "-")
-			} else {
-				nextFlag = l.join(flagPrefix, strings.ToLower(structField.Name), "-")
+			childFlag := l.join(flagPrefix, tagFlag, "-")
+			if tagFlag == "" {
+				childFlag = l.join(flagPrefix, strings.ToLower(structField.Name), "-")
 			}
 
-			nextEnv := envPrefix
-			if tagEnv != "" {
-				nextEnv = l.join(envPrefix, tagEnv, "_")
-			} else {
-				nextEnv = l.join(envPrefix, strings.ToUpper(structField.Name), "_")
+			childEnv := l.join(envPrefix, tagEnv, "_")
+			if tagEnv == "" {
+				childEnv = l.join(envPrefix, strings.ToUpper(structField.Name), "_")
 			}
 
-			// БЕЗОПАСНОЕ КОПИРОВАНИЕ СЛАЙСА: Исключает затирание индексов соседних вложенных структур
 			childIndex := make([]int, len(indexPrefix), len(indexPrefix)+1)
 			copy(childIndex, indexPrefix)
 			childIndex = append(childIndex, i)
 
-			l.extractMetaRecursive(structField.Type, nextFlag, nextEnv, childIndex, metaList)
+			l.extractMetaRecursive(structField.Type, childFlag, childEnv, childIndex, metaList)
 			continue
 		}
 
