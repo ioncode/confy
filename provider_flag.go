@@ -67,19 +67,19 @@ func (p *FlagProvider) InitAndBind(fields []FieldInstance) error {
 	}
 
 	p.fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Использование приложения:\n\n")
+		_, _ = fmt.Fprintf(os.Stderr, "Использование приложения:\n\n")
 		w := tabwriter.NewWriter(os.Stderr, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "  ФЛАГ\tПЕРЕМЕННАЯ ОКРУЖЕНИЯ\tЗНАЧЕНИЕ ПО УМОЛЧАНИЮ\tОПИСАНИЕ")
-		fmt.Fprintln(w, "  ----\t--------------------\t---------------------\t---------")
+		_, _ = fmt.Fprintln(w, "  ФЛАГ\tПЕРЕМЕННАЯ ОКРУЖЕНИЯ\tЗНАЧЕНИЕ ПО УМОЛЧАНИЮ\tОПИСАНИЕ")
+		_, _ = fmt.Fprintln(w, "  ----\t--------------------\t---------------------\t---------")
 		for _, f := range fields {
 			envStr := f.Meta.EnvName
 			if envStr == "" {
 				envStr = "-"
 			}
-			fmt.Fprintf(w, "  -%s\t%s\t%v\t%s\n", f.Meta.FlagName, envStr, f.Value.Interface(), f.Meta.Usage)
+			_, _ = fmt.Fprintf(w, "  -%s\t%s\t%v\t%s\n", f.Meta.FlagName, envStr, f.Value.Interface(), f.Meta.Usage)
 		}
 		_ = w.Flush()
-		fmt.Fprintf(os.Stderr, "\nПеременные окружения имеют приоритет над флагами командной строки.\n")
+		_, _ = fmt.Fprintf(os.Stderr, "\nПеременные окружения имеют приоритет над флагами командной строки.\n")
 	}
 
 	if err := p.fs.Parse(p.args); err != nil {
