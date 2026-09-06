@@ -6,10 +6,18 @@ import (
 	"sync"
 )
 
-// Глобальный потокобезопасный кэш схемы типов. Предотвращает повторный разбор тегов и путей полей.
+// cachedSchema инкапсулирует вычисленные метаданные и синхронизацию флагов для конкретного типа.
+type cachedSchema struct {
+	meta      []FieldMeta
+	onceFlags sync.Once
+}
+
+// schemaCache — глобальный потокобезопасный кэш схем типов.
+// Предотвращает повторный разбор тегов и путей полей структуры при многократных вызовах Load.
 var schemaCache sync.Map
 
-// Оптимизирующий пул объектов для повторного использования рантайм-срезов FieldInstance без аллокаций в куче.
+// instancePool — пул объектов для повторного использования рантайм-срезов FieldInstance.
+// Позволяет полностью исключить аллокации памяти в куче при частых перезагрузках или в бенчмарках.
 var instancePool = sync.Pool{
 	New: func() any {
 		return &[]FieldInstance{}
@@ -33,38 +41,42 @@ func New(envPrefix string, args []string) *Loader {
 	}
 }
 
-// Load производит полную сборку конфигурации из трех слоев провайдеров с сохранением изолированности вызовов.
+// Load выполняет сборку конфигурации из трех источников (дефолты, флаги, ENV) для переданной структуры.
+//
+// Метод оптимизирован с помощью глобального кэша и пула объектов, обеспечивая O(1) рантайм-доступ
+// к полям конфигурации без генерации лишнего мусора в памяти (Zero-allocation).
 func (l *Loader) Load(cfg any) error {
-	v := reflect.ValueOf(cfg)
-	if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Struct {
-		return &ErrInvalidConfigTarget{Kind: v.Kind()}
+	t := reflect.TypeOf(cfg)
+	if t == nil || t.Kind() != reflect.Pointer || t.Elem().Kind() != reflect.Struct {
+		return &ErrInvalidConfigTarget{Kind: reflect.ValueOf(cfg).Kind()}
 	}
 
+	v := reflect.ValueOf(cfg)
 	structVal := v.Elem()
-	structType := reflect.TypeOf(cfg).Elem()
+	structType := t.Elem()
 
-	// 1. Извлекаем схему структуры из глобального кэша или строим рекурсивно один раз
-	var cachedMeta []FieldMeta
+	// 1. Получаем неизменяемую схему структуры из глобального кэша или строим рекурсивно один раз
+	var schema *cachedSchema
 	if val, ok := schemaCache.Load(structType); ok {
-		cachedMeta = val.([]FieldMeta)
+		schema = val.(*cachedSchema)
 	} else {
 		var builtMeta []FieldMeta
 		l.extractMetaRecursive(structType, "", "", nil, &builtMeta)
-		schemaCache.Store(structType, builtMeta)
-		cachedMeta = builtMeta
+		schema = &cachedSchema{meta: builtMeta}
+		schemaCache.Store(structType, schema)
 	}
 
-	// 2. Арендуем срез экземпляров полей из пула sync.Pool
+	// 2. Арендуем срез экземпляров полей из пула памяти sync.Pool
 	pSlice := instancePool.Get().(*[]FieldInstance)
 	instances := *pSlice
-	if cap(instances) < len(cachedMeta) {
-		instances = make([]FieldInstance, len(cachedMeta))
+	if cap(instances) < len(schema.meta) {
+		instances = make([]FieldInstance, len(schema.meta))
 	} else {
-		instances = instances[:len(cachedMeta)]
+		instances = instances[:len(schema.meta)]
 	}
 
-	// Переносим рантайм-ссылки полей текущей структуры по O(1) смещениям из кэша
-	for i, meta := range cachedMeta {
+	// Наполняем инстансы рантайм-ссылками полей текущей структуры по O(1) смещениям из кэша
+	for i, meta := range schema.meta {
 		instances[i] = FieldInstance{
 			Meta:  meta,
 			Value: structVal.FieldByIndex(meta.FieldIndex),
@@ -78,6 +90,7 @@ func (l *Loader) Load(cfg any) error {
 		return err
 	}
 
+	// Флаги парсятся ровно один раз для ЭТОГО инстанса Loader (тесты изолированы)
 	var flagErr error
 	l.onceFlags.Do(func() {
 		flagErr = l.flagProvider.Bind(instances)
@@ -93,7 +106,7 @@ func (l *Loader) Load(cfg any) error {
 		return err
 	}
 
-	// 4. Валидация обязательных полей (required)
+	// 4. Проверка обязательных полей (required)
 	for _, inst := range instances {
 		if inst.Meta.Required && l.isEmpty(inst.Value) {
 			instancePool.Put(pSlice)
@@ -138,6 +151,7 @@ func (l *Loader) extractMetaRecursive(t reflect.Type, flagPrefix, envPrefix stri
 				nextEnv = l.join(envPrefix, strings.ToUpper(structField.Name), "_")
 			}
 
+			// БЕЗОПАСНОЕ КОПИРОВАНИЕ СЛАЙСА: Исключает затирание индексов соседних вложенных структур
 			childIndex := make([]int, len(indexPrefix), len(indexPrefix)+1)
 			copy(childIndex, indexPrefix)
 			childIndex = append(childIndex, i)
@@ -150,6 +164,7 @@ func (l *Loader) extractMetaRecursive(t reflect.Type, flagPrefix, envPrefix stri
 			continue
 		}
 
+		// БЕЗОПАСНОЕ КОПИРОВАНИЕ СЛАЙСА: Формирует атомарный путь к конкретному примитивному поля
 		currentIndex := make([]int, len(indexPrefix), len(indexPrefix)+1)
 		copy(currentIndex, indexPrefix)
 		currentIndex = append(currentIndex, i)
@@ -166,6 +181,7 @@ func (l *Loader) extractMetaRecursive(t reflect.Type, flagPrefix, envPrefix stri
 	}
 }
 
+// join объединяет префиксы с тегами, используя указанный разделитель.
 func (l *Loader) join(prefix, tag, sep string) string {
 	if prefix == "" {
 		return tag
@@ -176,6 +192,7 @@ func (l *Loader) join(prefix, tag, sep string) string {
 	return prefix + sep + tag
 }
 
+// isEmpty проверяет, инициализировано ли базовое рантайм-значение поля структуры.
 func (l *Loader) isEmpty(v reflect.Value) bool {
 	switch v.Kind() {
 	case reflect.String:
