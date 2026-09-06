@@ -62,8 +62,12 @@ func TestLoader_NestedAndCached(t *testing.T) {
 func TestLoader_EnvPriority(t *testing.T) {
 	defer os.Clearenv()
 
-	os.Setenv("TEST_ENV", "staging")
-	os.Setenv("TEST_DB_PORT", "1111")
+	if err := os.Setenv("TEST_ENV", "staging"); err != nil {
+		t.Fatalf("Не удалось установить переменную окружения TEST_ENV: %v", err)
+	}
+	if err := os.Setenv("TEST_DB_PORT", "1111"); err != nil {
+		t.Fatalf("Не удалось установить переменную окружения TEST_DB_PORT: %v", err)
+	}
 
 	args := []string{"-env", "production", "-db-port", "2222"}
 	loader := confy.New("TEST_", args)
