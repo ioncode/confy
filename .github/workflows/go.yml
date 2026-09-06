@@ -97,4 +97,4 @@ jobs:
           
           # Переводим имя модуля в нижний регистр согласно спецификации Go пакетов
           LOWER_MODULE=$(echo "$MODULE_NAME" | tr '[:upper:]' '[:lower:]')
-          curl -i "https://golang.org{LOWER_MODULE}/@v/${TAG_NAME}.info"
+          curl -i "https://golang.org/${LOWER_MODULE}/@v/${TAG_NAME}.info"
